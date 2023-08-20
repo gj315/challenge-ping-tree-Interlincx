@@ -386,7 +386,7 @@ test.serial.cb('Should return an error when attempting to update a target with a
 
   function handleResponse (err, res) {
     t.falsy(err, 'Expected no error during the request.')
-    console.log('res.statusCode', res.statusCode)
+
     t.is(res.statusCode, 400, 'Expected status code to be 400 due to empty data')
     t.is(res.body.status, 'Required fields are absent', 'Expected status message to indicate the necessity of at least one field.')
 
