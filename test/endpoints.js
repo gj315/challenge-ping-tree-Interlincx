@@ -129,6 +129,60 @@ test.serial.cb('Addition of a new target should faild when a field has an incorr
   }
 })
 
+// Tests for retrieving all targets from the /api/targets route.
+test.serial.cb('Retrieve all target from database', function (t) {
+  redis.FLUSHDB()
+
+  var primaryTarget = _getTestTarget()
+  var secondaryTarget = {
+    ...primaryTarget,
+    id: '3'
+  }
+
+  var allTestTargets = [primaryTarget, secondaryTarget]
+  _addTargetsToRedis(allTestTargets)
+
+  var getTargetsURL = '/api/targets'
+  var requestOptions = {
+    method: 'GET',
+    encoding: 'json'
+  }
+
+  servertest(server(), getTargetsURL, requestOptions, handleResponse)
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'there should be no error')
+
+    t.is(res.statusCode, 200, 'Expected status code of 200 for a successful request')
+    t.is(res.body.status, 'OK', 'Response indicates a successful operation')
+    t.truthy(res.body.data)
+    t.truthy(res.body.data.length === 2)
+    t.deepEqual(res.body.data, allTestTargets)
+
+    t.end()
+  }
+})
+
+test.serial.cb('Retrieve targets when the database us empty', function (t) {
+  redis.FLUSHDB()
+
+  var getTargetsURL = '/api/targets'
+  var requestOptions = {
+    method: 'GET',
+    encoding: 'json'
+  }
+
+  servertest(server(), getTargetsURL, requestOptions, handleResponse)
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'there should be no error')
+
+    t.is(res.statusCode, 200, 'Expected status code of 200 for a successful request')
+    t.is(res.body.status, 'OK', 'Response indicates a succssful operation')
+    t.end()
+  }
+})
+
 function _getTestTarget () {
   return {
     id: '1',
@@ -144,4 +198,14 @@ function _getTestTarget () {
       }
     }
   }
+}
+
+function _addTargetsToRedis (targets) {
+  targets.forEach(function (target) {
+    var targetKey = `target:${target.id}`
+    var targetValue = JSON.stringify(target)
+
+    redis.set(targetKey, targetValue)
+    redis.sadd('targets', targetKey)
+  })
 }
