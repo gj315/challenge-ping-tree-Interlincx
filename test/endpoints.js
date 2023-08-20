@@ -394,6 +394,332 @@ test.serial.cb('Should return an error when attempting to update a target with a
   }
 })
 
+// Test scenarios for the decision-making endpoint /route.
+test.serial.cb('Retrieve target decision using test visitor data', function (t) {
+  redis.FLUSHDB()
+
+  var testVisitor = _getTestVisitorInfo()
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(testVisitor))
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not have any errors')
+
+    t.is(res.statusCode, 200, 'Should return a 200 status code')
+    t.is(res.body.decision, targetObj.url, 'Should match the expected target URL')
+    t.end()
+  }
+})
+
+test.serial.cb('Should reject target decision due to invalid visitor timestamp', function (t) {
+  redis.FLUSHDB()
+
+  var wrongDateTime = '10-12-201:23:32'
+
+  var visitorInfo = _getTestVisitorInfo()
+  visitorInfo = {
+    ...visitorInfo,
+    timestamp: wrongDateTime
+  }
+
+  var targetObj = _getTestTarget()
+
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+
+    t.is(res.statusCode, 400, 'Should return a 400 status code')
+    t.is(res.body.status, 'The timestamp should be in the Date format.', 'Status message should indicate invalid timestamp')
+    t.end()
+  }
+})
+
+test.serial.cb('Should reject target decision due to invalid visitor geoState', function (t) {
+  redis.FLUSHDB()
+
+  var wrongGeoState = 'RAJ'
+  var visitorInfo = _getTestVisitorInfo()
+  visitorInfo = {
+    ...visitorInfo,
+    geoState: wrongGeoState
+  }
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+    t.is(res.statusCode, 400, 'Should return a 400 status code')
+    t.is(res.body.status, 'geoState must be a string of length 2', 'Status message should indicate invalid geoState')
+    t.end()
+  }
+})
+
+test.serial.cb('Should reject target decision with an empty visitor object', function (t) {
+  redis.FLUSHDB()
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end('{}')
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+
+    t.is(res.statusCode, 400, 'Should return a 400 status code')
+    t.is(res.body.status, 'Required fields are missing', 'Status message should indicate missing required fields')
+    t.end()
+  }
+})
+
+test.serial.cb('Should reject target decision due to missing visitor fields', function (t) {
+  redis.FLUSHDB()
+
+  var visitorInfo = _getTestVisitorInfo()
+  delete visitorInfo.geoState
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+    t.is(res.statusCode, 400, 'Should return a 400 status code')
+    t.is(res.body.status, 'Required fields are missing', 'Status message should indicate missing required fields')
+    t.end()
+  }
+})
+
+test.serial.cb('Should select lower-priority target if top target exhausts its daily accepts', function (t) {
+  redis.FLUSHDB()
+
+  var visitorInfo = _getTestVisitorInfo()
+  var testTargetHigherValue = _getTestTarget()
+  testTargetHigherValue = {
+    ...testTargetHigherValue,
+    id: 3,
+    value: '30',
+    url: 'http://test3.com'
+  }
+
+  var testTargets = [
+    _getTestTarget(),
+    testTargetHigherValue
+  ]
+
+  _addTargetsToRedis(testTargets)
+
+  redis.set('target:3:acceptsToday', 10)
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  // Execute the test
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  // Response handling
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+
+    t.is(res.statusCode, 200, 'Should return a 200 status code')
+    t.is(res.body.decision, testTargets[0].url, 'Expected target URL should be selected')
+    t.end()
+  }
+})
+
+test.serial.cb('Should select the highest-priority target for the visitor', function (t) {
+  redis.FLUSHDB()
+
+  var visitorInfo = _getTestVisitorInfo()
+  var testTargetHigherValue = _getTestTarget()
+  testTargetHigherValue = {
+    ...testTargetHigherValue,
+    id: 3,
+    value: '30',
+    url: 'http://test3.com'
+  }
+
+  var testTargets = [
+    _getTestTarget(),
+    testTargetHigherValue
+  ]
+
+  _addTargetsToRedis(testTargets)
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  // Execute the test
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  // Response handling
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+
+    t.is(res.statusCode, 200, 'Should return a 200 status code')
+    t.is(res.body.decision, testTargets[1].url, 'Highest-priority target URL should be selected')
+    t.end()
+  }
+})
+
+test.serial.cb('Should decline decision if no available targets remain', function (t) {
+  redis.FLUSHDB()
+
+  var visitorInfo = _getTestVisitorInfo()
+  var targetObj = _getTestTarget()
+
+  targetObj = {
+    ...targetObj,
+    maxAcceptsPerDay: 0
+  }
+
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  // Execute the test
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  // Response handling
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+
+    t.is(res.statusCode, 200, 'Should return a 200 status code')
+    t.is(res.body.decision, 'reject', 'Decision should indicate target rejection')
+    t.end()
+  }
+})
+
+test.serial.cb('Should reject target with mismatched timestamp', function (t) {
+  redis.FLUSHDB()
+
+  var visitorInfo = _getTestVisitorInfo()
+  visitorInfo = {
+    ...visitorInfo,
+    timestamp: '2019-07-12T21:39:59.513Z'
+  }
+
+  var targetObj = _getTestTarget()
+
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  // Execute the test
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  // Response handling
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+
+    t.is(res.statusCode, 200, 'Should return a 200 status code')
+    t.is(res.body.decision, 'reject', 'Decision should indicate target rejection')
+    t.end()
+  }
+})
+
+test.serial.cb('Should reject target with mismatched state', function (t) {
+  redis.FLUSHDB()
+
+  var visitorInfo = _getTestVisitorInfo()
+  visitorInfo = {
+    ...visitorInfo,
+    geoState: 'RA'
+  }
+
+  var targetObj = _getTestTarget()
+
+  _addTargetsToRedis([targetObj])
+
+  var decisionURL = '/route'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  // Execute the test
+  servertest(server(), decisionURL, requestOptions, handleResponse)
+    .end(JSON.stringify(visitorInfo))
+
+  // Response handling
+  function handleResponse (err, res) {
+    t.falsy(err, 'Should not encounter any errors')
+
+    t.is(res.statusCode, 200, 'Should return a 200 status code')
+    t.is(res.body.decision, 'reject', 'Decision should indicate target rejection')
+    t.end()
+  }
+})
+
+function _getTestVisitorInfo () {
+  return {
+    geoState: 'ca',
+    publisher: 'abc',
+    timestamp: '2018-07-19T14:28:59.513Z'
+  }
+}
+
 function _getTestTarget () {
   return {
     id: '1',
