@@ -183,6 +183,75 @@ test.serial.cb('Retrieve targets when the database us empty', function (t) {
   }
 })
 
+// Test cases for the endpoint '/api/target/:id' to ensure correct retrieval of target data.
+test.serial.cb('Retrieve Target by ID', function (t) {
+  redis.FLUSHDB()
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var getTargetURL = '/api/target/1'
+  var requestOptions = {
+    method: 'GET',
+    encoding: 'json'
+  }
+
+  servertest(server(), getTargetURL, requestOptions, handleResponse)
+
+  function handleResponse (err, resp) {
+    t.falsy(err, 'No error encountered')
+
+    t.is(resp.statusCode, 200, 'Correct status code received')
+    t.is(resp.body.status, 'OK', 'Status field is as expected')
+    t.deepEqual(resp.body.target, targetObj, 'Target data matches the expected data')
+
+    t.end()
+  }
+})
+
+test.serial.cb('Should return 404 when trying to get a non-existent target by ID', function (t) {
+  redis.FLUSHDB()
+
+  var getTargetURL = '/api/target/3'
+  var requestOptions = {
+    method: 'GET',
+    encoding: 'json'
+  }
+
+  servertest(server(), getTargetURL, requestOptions, handleResponse)
+
+  function handleResponse (err, resp) {
+    t.falsy(err, 'No error encountered')
+
+    t.is(resp.statusCode, 404, 'Received expected status code for non-existent target')
+    t.is(resp.body.status, 'Target does not exist with this ID', 'Received expected status message')
+    t.end()
+  }
+})
+
+test.serial.cb('Should return 404 when trying to get a target with a non-numeric ID', function (t) {
+  redis.FLUSHDB()
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var getTargetsURL = '/api/target/id1'
+  var requestOptions = {
+    method: 'GET',
+    encoding: 'json'
+  }
+
+  servertest(server(), getTargetsURL, requestOptions, handleResponse)
+
+  function handleResponse (err, resp) {
+    t.falsy(err, 'No error encountered')
+
+    t.is(resp.statusCode, 400, 'Received expected status code for invalid ID')
+    t.is(resp.body.status, 'Id param should be a positive integer', 'Received expected status message for invalid ID')
+    t.end()
+  }
+})
+
 function _getTestTarget () {
   return {
     id: '1',
