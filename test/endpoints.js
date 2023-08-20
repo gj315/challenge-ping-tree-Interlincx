@@ -252,6 +252,148 @@ test.serial.cb('Should return 404 when trying to get a target with a non-numeric
   }
 })
 
+// Test cases for the endpoint '/api/target/:id' to update the target with the targetId
+test.serial.cb('Update the specified target using its ID', function (t) {
+  redis.FLUSHDB()
+
+  var initalTarget = _getTestTarget()
+  _addTargetsToRedis([initalTarget])
+  initalTarget = {
+    ...initalTarget,
+    value: '2',
+    maxAcceptsPerDay: '30'
+  }
+
+  var updateTargetURL = '/api/target/1'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), updateTargetURL, requestOptions, handleResponse).end(JSON.stringify(initalTarget))
+
+  function handleResponse (err, resp) {
+    t.falsy(err, 'No error occurred.')
+
+    t.is(resp.statusCode, 200, 'Expected status code to be 200.')
+    t.is(resp.body.status, 'OK', 'Expected status to be OK.')
+
+    redis.get(`target:${initalTarget.id}`, function (err, retrievedValue) {
+      t.falsy(err, 'No error while retrieving from Redis.')
+
+      t.deepEqual(JSON.parse(retrievedValue), initalTarget, 'Retrieved target should match updated values.')
+      t.end()
+    })
+  }
+})
+
+test.serial.cb('Should return an error when attempting to update a target using an ID that is not a number', function (t) {
+  redis.FLUSHDB()
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var updateTargetURL = 'api/target/id'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), updateTargetURL, requestOptions, handleResponse).end(JSON.stringify(targetObj))
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Expected no error to occur.')
+
+    t.is(res.statusCode, 400, 'Expected status code to be 400 for invalid ID.')
+    t.is(res.body.status, 'Id param should be a positive integer', 'Expected status message to indicates required ID parameter.')
+    t.end()
+  }
+})
+
+test.serial.cb('Should return an error when trying to update a target with a non-existent ID', function (t) {
+  redis.FLUSHDB()
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  targetObj = {
+    ...targetObj,
+    value: '2',
+    maxAcceptsPerDay: '30'
+  }
+
+  var updatedTargetURL = '/api/target/5263'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), updatedTargetURL, requestOptions, handleResponse).end(JSON.stringify(targetObj))
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Expected no error during the operation.')
+
+    t.is(res.statusCode, 404, 'Expected status code to be 404 for non-existent target.')
+    t.is(res.body.status, 'The specified target ID does not exist. Please enter a valid target ID', 'Expected status message to indicate target does not exist.')
+
+    t.end()
+  }
+})
+
+test.serial.cb('Should return and error when updating a target with and invalid geoState value', function (t) {
+  redis.FLUSHDB()
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var updateTargetURL = '/api/target/1'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  targetObj.accept = {
+    geoState: 'ns',
+    hour: {
+      $in: ['13', '14', '15']
+    }
+  }
+
+  servertest(server(), updateTargetURL, requestOptions, handleResponse).end(JSON.stringify(targetObj))
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Expectd no error during the request.')
+
+    t.is(res.statusCode, 400, 'Expected status code to be 400 for invalid input.')
+    t.is(res.body.status, 'Both "geoState.$in" and "hour.$in" fields must be arrays.', 'Expected status message to indicate hour and geoState should be arrays.')
+    t.end()
+  }
+})
+
+test.serial.cb('Should return an error when attempting to update a target with an empty payload', function (t) {
+  redis.FLUSHDB()
+
+  var targetObj = _getTestTarget()
+  _addTargetsToRedis([targetObj])
+
+  var updateTargetURL = '/api/target/1'
+  var requestOptions = {
+    method: 'POST',
+    encoding: 'json'
+  }
+
+  servertest(server(), updateTargetURL, requestOptions, handleResponse).end('{}')
+
+  function handleResponse (err, res) {
+    t.falsy(err, 'Expected no error during the request.')
+    console.log('res.statusCode', res.statusCode)
+    t.is(res.statusCode, 400, 'Expected status code to be 400 due to empty data')
+    t.is(res.body.status, 'Required fields are absent', 'Expected status message to indicate the necessity of at least one field.')
+
+    t.end()
+  }
+})
+
 function _getTestTarget () {
   return {
     id: '1',
